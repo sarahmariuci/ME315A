@@ -1,0 +1,144 @@
+---
+title: "Lab04_Mariuci"
+author: "Sarah Mariuci"
+format: typst
+editor: visual
+---
+
+## Lab 04 - Importação de Dados Retangulares - Excel
+
+Q1. Carregue os pacotes readxl e tidyverse.
+```{r}
+#install.packages('readxl')
+#install.packages('tidyverse')
+library(readxl)
+library(tidyverse)
+```
+
+Q2. Crie uma variável chamada fname que contenha o caminho para o arquivo WDIEXCEL.xlsx, disponível no seu diretório de dados. Confirme que o R identifica a existência do arquivo utilizando o comando file.exists
+```{r}
+fname <- "Data/WDIEXCEL.xlsx"
+file.exists(fname)
+```
+
+Q3. Leia a planilha “Country” e armazene no objeto countries.
+```{r}
+countries <- read_excel(fname, sheet = "Country")
+
+```
+
+Q4. Mantenha apenas os registros de 5 países (Brasil e outros 4 de sua escolha).
+```{r}
+codigos_escolhidos <- c("BRA", "ARG", "USA", "AGO", "PRT")
+paises <- countries |> 
+  filter(`Country Code` %in% codigos_escolhidos)
+paises |> 
+  select('Short Name')
+```
+
+Q5. Leia a planilha “Data” e armazene no objeto WDI.
+```{r}
+# Nota de reprodutibilidade: A planilha original em Excel (.xlsx) excede o limite de 1GB de RAM do Posit Cloud. Para evitar travamentos, a aba "Data" foi convertida para CSV ("WDICSV.csv"), permitindo uma leitura rápida e idêntica dos dados.
+#WDI <- read_csv("data/WDICSV.csv")
+
+library(tidyverse)
+
+# 1. Função callback para filtrar e selecionar colunas em cada lote
+processa_WDI <- function(input, pos) { 
+  input |> 
+    filter(`Country Code` %in% paises$`Country Code`) |>     
+    select( 
+      `Country Code`, 
+      `Indicator Code`,
+      `1960`:`2018`
+    )
+}
+
+# 2. Leitura otimizada por blocos (chunks) do arquivo CSV
+WDI <- read_csv_chunked(
+  "Data/WDICSV.csv",
+  callback = DataFrameCallback$new(processa_WDI),
+  chunk_size = 100000,
+  show_col_types = FALSE
+)
+
+# 3. Visualiza o resultado
+head(WDI)
+```
+
+
+Q6. Selecione apenas as colunas:
+
+- Country Code
+- Indicator Code
+- E todos os anos de 1960-2018
+```{r}
+WDI_selecionado <- WDI |> 
+  select('Country Code', 'Indicator Code', '1960':'2018')
+```
+
+Q7. Confirme se os dados wm WDI estão em formato tidy. Se não estiverem, transforme-os para tal formato. Faça de forma que exista uma coluna referente ao ano chamada YEAR.
+```{r}
+head(WDI_selecionado)
+WDI_tidy <- WDI_selecionado |> 
+  pivot_longer(
+    cols = `1960`:`2018`,                     
+    names_to = "YEAR",                        
+    values_to = "VALUE",                     
+    names_transform = list(YEAR = as.integer) 
+  )
+```
+
+Q8. Confirme se a coluna referente ao ano está em formato inteiro.
+```{r}
+is.integer(WDI_tidy$YEAR)
+```
+
+Q9. Para o objeto WDI, mantenha apenas os registros dos países listados em countries. Selecione as colunas:
+
+- Country Code
+- Short Name
+- YEAR
+- SP.DYN.CBRT.IN
+```{r}
+WDI_filtrado <- WDI_tidy |> 
+  filter(`Indicator Code` == "SP.DYN.CBRT.IN") |> 
+  rename(SP.DYN.CBRT.IN = VALUE)
+
+WDI_final <- WDI_filtrado |> 
+  inner_join(paises, by = "Country Code") |> 
+  select(`Country Code`, `Short Name`, YEAR, SP.DYN.CBRT.IN)
+```
+
+Q10. Ordene o objeto de forma que, para cada país, as informações estejam ordenadas por ano.
+```{r}
+WDI_ordenado <- WDI_final |> 
+  arrange(`Short Name`, YEAR)
+```
+
+Q11. Construa um gráfico de linhas, usando o pacote ggplot2, que tenha no eixo X a variável YEAR, no eixo Y a variável SP.DYN.CBRT.IN e que cada linha corresponda a um país diferente.
+```{r}
+library(ggplot2)
+
+ggplot(WDI_ordenado, aes(x = YEAR, y = SP.DYN.CBRT.IN, color = `Short Name`, group = `Short Name`)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5, alpha = 0.8) +
+  labs(
+    title = "Evolução da Taxa Bruta de Natalidade (1960-2018)",
+    subtitle = "Comparativo temporal entre os 5 países selecionados",
+    x = "Ano (YEAR)",
+    y = "Taxa de Natalidade (SP.DYN.CBRT.IN)",
+    color = "País"
+  ) +
+  theme_minimal()
+```
+
+## Horário de conclusão
+
+```{r}
+Sys.setenv(TZ = "America/Sao_Paulo")
+Sys.time()
+```
+
+
+
