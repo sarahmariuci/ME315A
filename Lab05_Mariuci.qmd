@@ -1,0 +1,194 @@
+---
+title: "Lab 05 - ME315"
+author: "Sarah Mariuci"
+format: typst
+editor: visual
+---
+
+## Lab 05 
+
+# Parte 1:
+
+Crie uma função que:
+```{r}
+library(tidyverse)
+library(readr)
+library(lubridate)
+library(ggplot2)
+
+# Observação 4: Nome da função 'analisa_aeronave'
+analisa_aeronave <- function(tail_number, arquivo) {
+
+  # A: Receber o valor de tail_number (ex: 'N431WN')
+  # Observacções 1, 2 e 3: Argumentos 'tail_number' e 'arquivo'
+  if (!is.character(tail_number) || length(tail_number) != 1) {
+    stop("O argumento 'tail_number' deve ser uma string unica com o codigo da aeronave.")
+  }
+
+  if (!is.character(arquivo) || length(arquivo) != 1) {
+    stop("O argumento 'arquivo' deve ser uma string com o caminho completo do arquivo.")
+  }
+
+  # B: Tabela (tidy) ordenada por data/hora com todas as colunas
+  # Observação 5: Leitura do arquivo em partes (chunked)
+  callback_filtro <- readr::DataFrameCallback$new(function(chunk, pos) {
+    chunk |> dplyr::filter(TAIL_NUMBER == tail_number)
+  })
+
+  tabela_trajetos <- readr::read_csv_chunked(
+    file = arquivo,
+    callback = callback_filtro,
+    chunk_size = 100000,
+    show_col_types = FALSE
+  )
+
+  tabela_trajetos <- tabela_trajetos |>
+    dplyr::arrange(YEAR, MONTH, DAY, DEPARTURE_TIME)
+
+  if (nrow(tabela_trajetos) == 0) {
+    warning(paste("Nenhum voo encontrado para a aeronave:", tail_number))
+    return(list(tabela = tabela_trajetos, grafico = NULL))
+  }
+
+  # C: Trajeto voado apresentado de maneira linear no tempo
+  # Observação 6: Utilizar coordenadas exatas do arquivo 'airports'
+  if (file.exists(file.path("dados", "airports.csv"))) {
+
+    airports_df <- readr::read_csv(
+      file.path("dados", "airports.csv"),
+      show_col_types = FALSE
+    )
+
+  } else if (file.exists("airports.csv")) {
+
+    airports_df <- readr::read_csv(
+      "airports.csv",
+      show_col_types = FALSE
+    )
+
+  } else if (exists("airports")) {
+
+    airports_df <- get("airports")
+
+  } else if (requireNamespace("nycflights13", quietly = TRUE)) {
+
+    airports_df <- nycflights13::airports
+
+  } else {
+
+    stop("Arquivo ou objeto de aeroportos nao encontrado.")
+  }
+
+  airports_clean <- airports_df |>
+    dplyr::rename_with(toupper) |>
+    dplyr::rename(
+      IATA = dplyr::matches("IATA_CODE|FAA|IATA|^CODE$"),
+      LAT = dplyr::matches("LATITUDE|LAT"),
+      LON = dplyr::matches("LONGITUDE|LON|LNG")
+    ) |>
+    dplyr::select(IATA, LAT, LON) |>
+    dplyr::distinct(IATA, .keep_all = TRUE)
+  
+  tabela_mapa <- tabela_trajetos |>
+    dplyr::left_join(
+      airports_clean,
+      by = c("ORIGIN_AIRPORT" = "IATA")
+    ) |>
+    dplyr::rename(
+      ORIG_LAT = LAT,
+      ORIG_LON = LON
+    ) |>
+    dplyr::left_join(
+      airports_clean,
+      by = c("DESTINATION_AIRPORT" = "IATA")
+    ) |>
+    dplyr::rename(
+      DEST_LAT = LAT,
+      DEST_LON = LON
+    ) |>
+    dplyr::filter(
+      !is.na(ORIG_LAT),
+      !is.na(DEST_LAT)
+    )
+
+  # D: Mapa decorado com estatística
+  tabela_mapa <- tabela_mapa |>
+    dplyr::mutate(
+      VELOCIDADE_MPH = ifelse(
+        !is.na(AIR_TIME) & AIR_TIME > 0,
+        DISTANCE / (AIR_TIME / 60),
+        NA
+      )
+    )
+
+  mapa_base <- ggplot2::annotation_borders(
+    "state",
+    colour = "grey80",
+    fill = "grey97"
+  )
+
+  mapa_trajeto <- ggplot2::ggplot(tabela_mapa) +
+    mapa_base +
+    ggplot2::geom_segment(
+      ggplot2::aes(
+        x = ORIG_LON,
+        y = ORIG_LAT,
+        xend = DEST_LON,
+        yend = DEST_LAT,
+        linewidth = VELOCIDADE_MPH,
+        color = ARRIVAL_DELAY
+      ),
+      alpha = 0.6
+    ) +
+    ggplot2::geom_point(
+      ggplot2::aes(
+        x = ORIG_LON,
+        y = ORIG_LAT
+      ),
+      color = "#2763ff",
+      size = 1.2
+    ) +
+    ggplot2::geom_point(
+      ggplot2::aes(
+        x = DEST_LON,
+        y = DEST_LAT
+      ),
+      color = "darkred",
+      size = 1.2
+    ) +
+    ggplot2::scale_linewidth_continuous(
+      name = "Velocidade Media (mph)",
+      range = c(0.4, 2.2)
+    ) +
+    ggplot2::scale_color_viridis_c(
+      name = "Atraso Chegada (min)",
+      option = "plasma",
+      na.value = "grey50"
+    ) +
+    ggplot2::labs(
+      title = paste(
+        "Trajetoria Anual da Aeronave:",
+        tail_number
+      ),
+      subtitle = "Espessura da linha = Velocidade Media | Cor = Atraso na Chegada",
+      x = "Longitude",
+      y = "Latitude"
+    ) +
+    ggplot2::coord_quickmap() +
+    ggplot2::theme_minimal()
+  
+  # Observação 7: Retornar lista nomeada com 'tabela' e 'grafico'
+  return(list(
+    tabela = tabela_trajetos,
+    grafico = mapa_trajeto
+  ))
+}
+
+resultado <- analisa_aeronave( tail_number = "N431WN", arquivo = file.path("flights.csv") )
+print(resultado$grafico)
+```
+
+
+
+
+
