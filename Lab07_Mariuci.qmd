@@ -1,0 +1,84 @@
+---
+title: "Lab 07 - ME315"
+author: "Sarah Mariuci"
+format: typst
+editor: visual
+---
+
+## Lab 07
+
+1. Baixe o arquivo uwmadison.sqlite3. Conecte-se a ele usando o pacote RSQLite, armazenando a conexão em uma variável conn.
+```{r}
+library(RSQLite) 
+library(DBI) 
+# Conectar ao banco de dados uwmadison.sqlite3 
+conn <- dbConnect(RSQLite::SQLite(), "uwmadison.sqlite3")
+```
+
+2. Quem são e quantos são os professores que lecionaram disciplinas cujo tópico era estatística (subjects.abbreviation='STAT')
+```{r}
+#Quantidade professores
+sql_qtd_professores <- "
+SELECT COUNT(DISTINCT i.id) AS total_professores 
+FROM subjects s 
+INNER JOIN subject_memberships sm ON s.code = sm.subject_code 
+INNER JOIN sections sec ON sm.course_offering_uuid = sec.course_offering_uuid 
+INNER JOIN teachings t ON sec.uuid = t.section_uuid 
+INNER JOIN instructors i ON t.instructor_id = i.id 
+WHERE s.abbreviation = 'STAT'; " 
+qtd_professores <- dbGetQuery(conn, sql_qtd_professores) 
+qtd_professores
+```
+
+```{r}
+#Lista professores
+sql_nomes_professores <- " 
+SELECT DISTINCT i.id, i.name AS nome_professor 
+FROM subjects s 
+INNER JOIN subject_memberships sm ON s.code = sm.subject_code 
+INNER JOIN sections sec ON sm.course_offering_uuid = sec.course_offering_uuid 
+INNER JOIN teachings t ON sec.uuid = t.section_uuid 
+INNER JOIN instructors i ON t.instructor_id = i.id WHERE s.abbreviation = 'STAT' 
+ORDER BY i.name;
+" 
+professores_stat <- dbGetQuery(conn, sql_nomes_professores) 
+head(professores_stat)
+```
+
+3. O GPA americano é definido numa escala de 0 a 4, em que A = 4, AB = 3.5, B = 3, BC = 2.5, C = 2, D = 1 e F = 0. Determinando a nota média de cada oferecimento pela ponderação da quantidade de alunos em cada extrato com os valores numéricos de cada conceito, indique (no que se referente a disciplinas no assunto de estatística):
+Quem é o professor mais difícil?
+Quem é o professor mais fácil?
+Qual é a disciplina mais difícil?
+Qual é a disciplina mais fácil?
+```{r}
+sql_gpa_disciplinas <- "
+SELECT c.name AS disciplina, c.number AS numero_curso,
+SUM( 
+  4.0 * g.a_count + 3.5 * g.ab_count + 3.0 * g.b_count + 2.5 * g.bc_count + 2.0 * g.c_count + 1.0 * g.d_count ) * 1.0 / NULLIF(SUM(
+  g.a_count + g.ab_count + g.b_count + g.bc_count + g.c_count + g.d_count + g.f_count ), 0) AS gpa_medio 
+FROM subjects s 
+INNER JOIN subject_memberships sm ON s.code = sm.subject_code 
+INNER JOIN course_offerings co ON sm.course_offering_uuid = co.uuid 
+INNER JOIN courses c ON co.course_uuid = c.uuid 
+INNER JOIN grade_distributions g ON co.uuid = g.course_offering_uuid 
+WHERE s.abbreviation = 'STAT' 
+GROUP BY c.uuid, c.name 
+HAVING SUM(g.a_count + g.ab_count + g.b_count + g.bc_count + g.c_count + g.d_count + g.f_count) > 0 
+ORDER BY gpa_medio ASC;
+" 
+ranking_disciplinas <- dbGetQuery(conn, sql_gpa_disciplinas) 
+
+# Disciplina mais difícil (menor GPA médio) 
+disciplina_mais_dificil <- head(ranking_disciplinas, 1) 
+
+# Disciplina mais fácil (maior GPA médio) 
+disciplina_mais_facil <- tail(ranking_disciplinas, 1) 
+cat("Disciplina mais difícil:", disciplina_mais_dificil$disciplina, "(GPA:", round(disciplina_mais_dificil$gpa_medio, 2), ")\n") 
+cat("Disciplina mais fácil:", disciplina_mais_facil$disciplina, "(GPA:", round(disciplina_mais_facil$gpa_medio, 2), ")\n")
+```
+
+4. Desconecte do banco de dados.
+```{r}
+dbDisconnect(conn)
+```
+
